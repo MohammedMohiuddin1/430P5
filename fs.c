@@ -88,8 +88,50 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
   // Insert your code here
   // ++++++++++++++++++++++++
 
-  FATAL(ENYI);                                  // Not Yet Implemented!
-  return 0;
+  i32 Inum = bfsFdToInum(fd);
+
+  i32 cursor_position = bfsTell(fd);
+
+  i32 first = cursor_position / BYTESPERBLOCK; 
+
+  i32 numb_of_bytes = cursor_position + numb;
+
+  i32 last = numb_of_bytes / BYTESPERBLOCK; 
+
+  i32 offset = 0; 
+
+  for(int i = first; i <= last; i++)
+  {
+     i8* bio_buffer = malloc(BYTESPERBLOCK);
+
+     if(i == first)
+     {
+        bfsRead(Inum, i, bio_buffer);
+
+        i32 block_offset = cursor_position % BYTESPERBLOCK;
+
+        i32 num_of_allocations = BYTESPERBLOCK - block_offset;
+
+        memcpy(buf, bio_buffer + block_offset, num_of_allocations);
+
+        offset += num_of_allocations;
+     } 
+
+     else 
+     { 
+       bfsRead(Inum, i, bio_buffer);
+
+       memcpy(buf + offset, bio_buffer, BYTESPERBLOCK);
+
+       offset += BYTESPERBLOCK;
+     }
+
+     free(bio_buffer);
+  }
+
+  bfsSetCursor(Inum, cursor_position + numb);
+                                                      // Not Yet Implemented!
+  return numb;
 }
 
 
