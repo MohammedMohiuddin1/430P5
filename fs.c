@@ -203,7 +203,122 @@ i32 fsWrite(i32 fd, i32 numb, void* buf) {
   // ++++++++++++++++++++++++
   // Insert your code here
   // ++++++++++++++++++++++++
+  
+  i32 Inum = bfsFdToInum(fd);
+  i32 cursor_position = bfsTell(fd);
+  i32 size = fsSize(fd);
+  i32 new_size = cursor_position + numb; 
 
-  FATAL(ENYI);                                  // Not Yet Implemented!
-  return 0;
+  if(size < new_size)
+  {
+
+    i32 num_of_current_blocks = 0; 
+
+    if(size % BYTESPERBLOCK == 0)
+    {
+       num_of_current_blocks = size / BYTESPERBLOCK;
+    }
+    else if(size % BYTESPERBLOCK != 0)
+    {
+       num_of_current_blocks = size / BYTESPERBLOCK + 1;
+    }
+    else 
+    {
+       printf("Error: could not calculate number of current blocks in file");
+    }
+
+    i32 current_space = num_of_current_blocks * BYTESPERBLOCK;
+
+    if(current_space < new_size)
+    {
+      i32 needed_memory = new_size - current_space;
+      i32 needed_blocks = 0;
+
+      if(needed_memory % BYTESPERBLOCK == 0)
+      {
+         needed_blocks = needed_memory / BYTESPERBLOCK;
+      }
+      else if(needed_memory % BYTESPERBLOCK != 0)
+      {
+         needed_blocks = needed_memory / BYTESPERBLOCK + 1;
+      }
+      else
+      {
+        printf("Error: could not calculate number of current blocks needed"); 
+      }
+
+      i32 fbn_size = num_of_current_blocks + needed_blocks;
+      bfsExtend(Inum, fbn_size);
+    }
+
+    bfsSetSize(Inum, new_size);
+  }
+
+    i32 first_fbn = cursor_position / BYTESPERBLOCK; 
+
+    i32 last_fbn = (cursor_position + numb) / BYTESPERBLOCK;
+
+    i32 offset = 0;
+
+    for(int i = first_fbn; i <= last_fbn; i++)
+    {
+       i8* bio_buffer = malloc(BYTESPERBLOCK);
+       if(i == first_fbn)
+       {
+         bfsRead(Inum, i, bio_buffer);
+
+         i32 first_offset = cursor_position % BYTESPERBLOCK;
+
+         i32 fbytes = -1; 
+
+         if(first_fbn == last_fbn)
+         {
+           fbytes = numb;
+         }
+         else if(last_fbn > first_fbn)
+         {
+           fbytes = BYTESPERBLOCK - first_offset;
+         }
+
+         memcpy(bio_buffer + first_offset, buf, fbytes);
+
+         i32 first_dbn = bfsFbnToDbn(Inum, i);
+
+         bioWrite(first_dbn, bio_buffer);
+
+         offset += fbytes;
+       }
+       else if(i == last_fbn)
+       {
+          bfsRead(Inum, i, bio_buffer);
+
+          i32 last_block_start = BYTESPERBLOCK * last_fbn;
+          i32 lbytes = (cursor_position + numb) - last_block_start;
+
+          memcpy(bio_buffer, buf + (numb - lbytes), lbytes);
+
+          i32 last_dbn = bfsFbnToDbn(Inum, i);
+
+          bioWrite(last_dbn, bio_buffer);
+
+          offset += lbytes;
+       }
+       else
+       {
+         memcpy(bio_buffer, buf + offset, BYTESPERBLOCK);
+
+         i32 middle_dbn = bfsFbnToDbn(Inum, i);
+
+         bioWrite(middle_dbn, bio_buffer);
+
+         offset += BYTESPERBLOCK; 
+
+       }
+
+       free(bio_buffer);
+    }
+  
+
+  bfsSetCursor(Inum, cursor_position + numb);                            // Not Yet Implemented!
+  return 0; 
 }
