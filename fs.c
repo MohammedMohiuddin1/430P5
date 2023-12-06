@@ -86,52 +86,70 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
 
   // ++++++++++++++++++++++++
   // Insert your code here
-  // ++++++++++++++++++++++++ //test
-
+  // ++++++++++++++++++++++++ 
+  
+  i8 bio_buffer[BYTESPERBLOCK];
+  i32 remaining_bytes = numb;
   i32 Inum = bfsFdToInum(fd);
+  i32 cursor_position = fsTell(fd) / BYTESPERBLOCK;
+  i32 remainder = fsTell(fd) % BYTESPERBLOCK;
+  i32 byte_offset = 0;
+  i32 start = fsTell(fd);
 
-  i32 cursor_position = bfsTell(fd);
-
-  i32 first = cursor_position / BYTESPERBLOCK; 
-
-  i32 numb_of_bytes = cursor_position + numb;
-
-  i32 last = numb_of_bytes / BYTESPERBLOCK; 
-
-  i32 offset = 0; 
-
-  for(int i = first; i <= last; i++)
+  while(remaining_bytes > 0)
   {
-     i8* bio_buffer = malloc(BYTESPERBLOCK);
-
-     if(i == first)
+     bfsRead(Inum, cursor_position, bio_buffer);
+    
+     if(remainder > 0)
      {
-        bfsRead(Inum, i, bio_buffer);
+        i32 bytes_left = BYTESPERBLOCK - remainder; 
+        if(remaining_bytes > bytes_left)
+        {
+          remaining_bytes -= bytes_left;
+        }
+        else 
+        {
+          bytes_left = remaining_bytes;
+          remaining_bytes = 0;
+        }
+        memcpy(buf + byte_offset, bio_buffer + remainder, bytes_left);
+        byte_offset += bytes_left;
+        remainder = 0;
+        fsSeek(fd, bytes_left, SEEK_CUR);
 
-        i32 block_offset = cursor_position % BYTESPERBLOCK;
+      }
+      else
+      {
+         if(remaining_bytes > BYTESPERBLOCK)
+         {
+           memcpy(buf + byte_offset, bio_buffer, BYTESPERBLOCK);
+           remaining_bytes -= BYTESPERBLOCK;
+           byte_offset += BYTESPERBLOCK;
+           fsSeek(fd, BYTESPERBLOCK, SEEK_CUR);
+         }
+         else
+         {
+          memcpy(buf + byte_offset, bio_buffer, remaining_bytes);
+          fsSeek(fd, remaining_bytes, SEEK_CUR);
+          remaining_bytes = 0;
 
-        i32 num_of_allocations = BYTESPERBLOCK - block_offset;
+         }
 
-        memcpy(buf, bio_buffer + block_offset, num_of_allocations);
-
-        offset += num_of_allocations;
-     } 
-
-     else 
-     { 
-       bfsRead(Inum, i, bio_buffer);
-
-       memcpy(buf + offset, bio_buffer, BYTESPERBLOCK);
-
-       offset += BYTESPERBLOCK;
-     }
-
-     free(bio_buffer);
+      }
+      if(remaining_bytes != 0)
+      {
+        cursor_position++;
+      }
   }
 
-  bfsSetCursor(Inum, cursor_position + numb);
-                                                      // Not Yet Implemented!
-  return numb;
+      if(start + numb > fsSize(fd))
+      {
+        fsSeek(fd, fsSize(fd), SEEK_SET);
+
+        return fsSize(fd) - start;
+      }
+      
+      return numb;
 }
 
 
