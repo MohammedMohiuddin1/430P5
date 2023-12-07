@@ -84,50 +84,69 @@ i32 fsOpen(str fname) {
 // ============================================================================
 i32 fsRead(i32 fd, i32 numb, void* buf) {
 
-  // ++++++++++++++++++++++++
-  // Insert your code here
-  // ++++++++++++++++++++++++ 
-  
-  i8 bio_buffer[BYTESPERBLOCK];
-  i32 remaining_bytes = numb;
-  i32 Inum = bfsFdToInum(fd);
-  i32 cursor_position = fsTell(fd) / BYTESPERBLOCK;
-  i32 remainder = fsTell(fd) % BYTESPERBLOCK;
-  i32 byte_offset = 0;
-  i32 start = fsTell(fd);
+  //make a temporary bio buffer
+  i8 bio_buffer[BYTESPERBLOCK]; 
 
-  while(remaining_bytes > 0)
+  //variable to keep track of how many bytes of data we have left to read. 
+  i32 remaining_bytes = numb;
+
+  //get inum of the file to be read
+  i32 Inum = bfsFdToInum(fd);
+
+  //get cursor position of file
+  i32 cursor_position = fsTell(fd);
+
+  //get current block. This will hold the the index of the current block
+  i32 current_block = cursor_position / BYTESPERBLOCK;
+
+  //offset within the current block to account for the cursor
+  i32 remainder = cursor_position % BYTESPERBLOCK;
+  
+  //offset to traverse the buffer
+  i32 byte_offset = 0; 
+  
+  //used for end of file case
+  i32 start = cursor_position;
+
+  while(remaining_bytes > 0) //while there are still bytes of data continue reading blocks
   {
-     bfsRead(Inum, cursor_position, bio_buffer);
-    
-     if(remainder > 0)
+     bfsRead(Inum, current_block, bio_buffer); //read contents of block into buffer
+  
+     //if there is a remainder
+     if(remainder > 0) 
      {
+        //get the bytes that we have left 
         i32 bytes_left = BYTESPERBLOCK - remainder; 
-        if(remaining_bytes > bytes_left)
+
+        //determine how much we have to read
+        if(remaining_bytes > bytes_left) //case for if there are more bytes to read than bytes left in the current block
         {
-          remaining_bytes -= bytes_left;
+            remaining_bytes -= bytes_left;
         }
-        else 
+        else //case for if the current bytes left in this block can satisfy remaining bytes. 
         {
-          bytes_left = remaining_bytes;
-          remaining_bytes = 0;
+            bytes_left = remaining_bytes;
+            remaining_bytes = 0;
         }
+        //copy data from bio_buffer to actual buffer (buf)
         memcpy(buf + byte_offset, bio_buffer + remainder, bytes_left);
+        
+        //update the byte offset, set remainder to 0, and move the file cursor. 
         byte_offset += bytes_left;
         remainder = 0;
         fsSeek(fd, bytes_left, SEEK_CUR);
 
       }
-      else
-      {
-         if(remaining_bytes > BYTESPERBLOCK)
+      else //case for if there is no remainder (process entire block)
+      {  
+         if(remaining_bytes >= BYTESPERBLOCK) 
          {
            memcpy(buf + byte_offset, bio_buffer, BYTESPERBLOCK);
            remaining_bytes -= BYTESPERBLOCK;
            byte_offset += BYTESPERBLOCK;
            fsSeek(fd, BYTESPERBLOCK, SEEK_CUR);
          }
-         else
+         else //final case for if remaining bytes left in block are less than the usual size (512)
          {
           memcpy(buf + byte_offset, bio_buffer, remaining_bytes);
           fsSeek(fd, remaining_bytes, SEEK_CUR);
@@ -136,20 +155,23 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
          }
 
       }
+      //if there are bytes left to process then adjust index to the next block
       if(remaining_bytes != 0)
       {
-        cursor_position++;
+        current_block++;
       }
   }
-
+      //test case for end of file
       if(start + numb > fsSize(fd))
       {
-        fsSeek(fd, fsSize(fd), SEEK_SET);
+        fsSeek(fd, fsSize(fd), SEEK_SET); //move cursor back if we have passed End of file
 
-        return fsSize(fd) - start;
+        i32 total_read = fsSize(fd) - start;
+
+        return total_read; //return how much we were able to read
       }
       
-      return numb;
+      return numb; //return numb for the cases where we don't deal with end of file
 }
 
 
@@ -218,125 +240,163 @@ i32 fsSize(i32 fd) {
 // ============================================================================
 i32 fsWrite(i32 fd, i32 numb, void* buf) {
 
-  // ++++++++++++++++++++++++
-  // Insert your code here
-  // ++++++++++++++++++++++++
-  
-  i32 Inum = bfsFdToInum(fd);
-  i32 cursor_position = bfsTell(fd);
-  i32 size = fsSize(fd);
-  i32 new_size = cursor_position + numb; 
+    //make a temporary bio buffer
+    i8 bio_buffer[BYTESPERBLOCK];
 
-  if(size < new_size)
-  {
+    //variable to keep track of how many bytes of data we have left to read. 
+    i32 remaining_bytes = numb;
 
-    i32 num_of_current_blocks = 0; 
+    //get inum of the file to be read
+    i32 Inum = bfsFdToInum(fd);
+    
+    //get cursor position of file
+    i32 cursor_position = fsTell(fd);
 
-    if(size % BYTESPERBLOCK == 0)
+    //get current block starting from the first FBN going all the way until the last. This will hold the the index of the current block
+    i32 current_block = cursor_position / BYTESPERBLOCK;
+
+    // Find where the cursor is
+    i32 remainder = cursor_position % BYTESPERBLOCK;
+
+    //offset to traverse the buffer
+    i32 byte_offset = 0;
+
+    //get total file size (size after writing the numb bytes)
+    i32 total_size = cursor_position + numb;
+    
+    //case for determining whether we need to allocate more blocks (allocation has exceeded file size)
+    if (fsSize(fd) < total_size) 
     {
-       num_of_current_blocks = size / BYTESPERBLOCK;
-    }
-    else if(size % BYTESPERBLOCK != 0)
-    {
-       num_of_current_blocks = size / BYTESPERBLOCK + 1;
-    }
-    else 
-    {
-       printf("Error: could not calculate number of current blocks in file");
-    }
 
+      //determine current number of blocks that file has 
+      i32 num_of_current_blocks = 0;
+
+      //file has enough space fills up perfectly into whole blocks
+      if (fsSize(fd) % BYTESPERBLOCK == 0) 
+      {
+         num_of_current_blocks = fsSize(fd) / BYTESPERBLOCK;
+      }
+      //doesn't fit evenly we have some space in the last block (so we add a + 1 to account for this)
+      else if(fsSize(fd) % BYTESPERBLOCK != 0) 
+      {
+         num_of_current_blocks = fsSize(fd) / BYTESPERBLOCK + 1;
+      }
+
+    //variable for current space
     i32 current_space = num_of_current_blocks * BYTESPERBLOCK;
 
-    if(current_space < new_size)
+      
+      if (current_space < total_size) 
+      {
+
+        //determine how many blocks we need to allocated based on memory needed
+        i32 needed_memory = total_size - current_space;
+        i32 needed_blocks = 0;
+
+        //needed memory can fit into whole blocks evenly
+        if (needed_memory % BYTESPERBLOCK == 0) 
+        {
+          needed_blocks = needed_memory / BYTESPERBLOCK;
+        }
+        //needed memory doesn't fit into whole blocks evenly and has some partial space (we add a + 1 to account for that)
+        else if (needed_blocks % BYTESPERBLOCK != 0) 
+        {
+          needed_blocks = needed_memory / BYTESPERBLOCK + 1;
+        }
+    
+        //new size with added blocks
+        i32 new_size = num_of_current_blocks + needed_blocks;
+
+        //extend with new size
+        bfsExtend(Inum, new_size);
+      }
+
+      //update the size of the file
+      bfsSetSize(Inum, total_size);
+    
+    }
+    
+    remaining_bytes = numb;
+
+    while (remaining_bytes > 0) //as long as we have bytes to write
     {
-      i32 needed_memory = new_size - current_space;
-      i32 needed_blocks = 0;
+        if (remainder > 0) //if there is a remainder (we don't start at the beginning of a block)
+        { 
+            //get the bytes that we have left
+            i32 bytes_left = BYTESPERBLOCK - remainder; 
 
-      if(needed_memory % BYTESPERBLOCK == 0)
-      {
-         needed_blocks = needed_memory / BYTESPERBLOCK;
-      }
-      else if(needed_memory % BYTESPERBLOCK != 0)
-      {
-         needed_blocks = needed_memory / BYTESPERBLOCK + 1;
-      }
-      else
-      {
-        printf("Error: could not calculate number of current blocks needed"); 
-      }
+            //determine how many bytes we have to read
+            if (remaining_bytes > bytes_left) //case for if there are more bytes to write than bytes left in the current block
+            {
+                remaining_bytes -= bytes_left;
+            } 
+            else //case for if the current bytes left in this block can satisfy remaining bytes. 
+            { 
+                bytes_left = remaining_bytes;
+                remaining_bytes = 0;
+            }
 
-      i32 fbn_size = num_of_current_blocks + needed_blocks;
-      bfsExtend(Inum, fbn_size);
+            //perform a bioRead into the bio_buffer
+            i32 dbn = bfsFbnToDbn(Inum, current_block);
+            bioRead(dbn, bio_buffer);
+
+            //write to the bio buffer starting at remainder
+            memcpy(bio_buffer + remainder, buf + byte_offset, bytes_left);
+            byte_offset += bytes_left;
+            remainder = 0;
+
+            //write the updated buffer back to the block using bioWrite
+            bioWrite(dbn, bio_buffer);
+
+            //move the cursor
+            fsSeek(fd, bytes_left, SEEK_CUR);
+        } 
+        else 
+        {   
+
+            // bioRead into bio buffer
+            i32 dbn = bfsFbnToDbn(Inum, current_block);
+            bioRead(dbn, bio_buffer);
+
+            
+            if (remaining_bytes >= BYTESPERBLOCK) //as long as remaining bytes are >= 512, write the entire block
+            { 
+
+                //copy a full block of bytes to bio buffer
+                memcpy(bio_buffer, buf + byte_offset, BYTESPERBLOCK);
+
+                // Update remaining bytes and byte offset
+                remaining_bytes -= BYTESPERBLOCK;
+                byte_offset += BYTESPERBLOCK;
+
+                //Write the updated bio buffer back to the block using bioWrite
+                bioWrite(dbn, bio_buffer);
+
+                //move the cursor
+                fsSeek(fd, BYTESPERBLOCK, SEEK_CUR);
+            } 
+            else //final case for if remaining bytes left in block are less than the usual size (512) 
+            { 
+                // copy the remaining bytes from buf to bio buffer
+                memcpy(bio_buffer, buf + byte_offset, remaining_bytes);
+
+                //write the updated bio buffer back to that block using bioWrite
+                bioWrite(dbn, bio_buffer);
+
+                //move the cursor
+                fsSeek(fd, remaining_bytes, SEEK_CUR);
+
+                //set remaining bytes to 0 since we have nothing left
+                remaining_bytes = 0;
+            }
+        }
+
+        //if there are bytes left to process then adjust index to the next block
+        if (remaining_bytes != 0) 
+        {
+            current_block++;
+        }
     }
 
-    bfsSetSize(Inum, new_size);
-  }
-
-    i32 first_fbn = cursor_position / BYTESPERBLOCK; 
-
-    i32 last_fbn = (cursor_position + numb) / BYTESPERBLOCK;
-
-    i32 offset = 0;
-
-    for(int i = first_fbn; i <= last_fbn; i++)
-    {
-       i8* bio_buffer = malloc(BYTESPERBLOCK);
-       if(i == first_fbn)
-       {
-         bfsRead(Inum, i, bio_buffer);
-
-         i32 first_offset = cursor_position % BYTESPERBLOCK;
-
-         i32 fbytes = -1; 
-
-         if(first_fbn == last_fbn)
-         {
-           fbytes = numb;
-         }
-         else if(last_fbn > first_fbn)
-         {
-           fbytes = BYTESPERBLOCK - first_offset;
-         }
-
-         memcpy(bio_buffer + first_offset, buf, fbytes);
-
-         i32 first_dbn = bfsFbnToDbn(Inum, i);
-
-         bioWrite(first_dbn, bio_buffer);
-
-         offset += fbytes;
-       }
-       else if(i == last_fbn)
-       {
-          bfsRead(Inum, i, bio_buffer);
-
-          i32 last_block_start = BYTESPERBLOCK * last_fbn;
-          i32 lbytes = (cursor_position + numb) - last_block_start;
-
-          memcpy(bio_buffer, buf + (numb - lbytes), lbytes);
-
-          i32 last_dbn = bfsFbnToDbn(Inum, i);
-
-          bioWrite(last_dbn, bio_buffer);
-
-          offset += lbytes;
-       }
-       else
-       {
-         memcpy(bio_buffer, buf + offset, BYTESPERBLOCK);
-
-         i32 middle_dbn = bfsFbnToDbn(Inum, i);
-
-         bioWrite(middle_dbn, bio_buffer);
-
-         offset += BYTESPERBLOCK; 
-
-       }
-
-       free(bio_buffer);
-    }
-  
-
-  bfsSetCursor(Inum, cursor_position + numb);                            // Not Yet Implemented!
-  return 0; 
+    return 0;
 }
