@@ -1,0 +1,17 @@
+Mohammed Mohiuddin 
+CSS 430 
+P5
+12/7/2023
+
+What I have implemented
+
+Read 100 bytes from start of file: YES 8/8 
+Read 200 bytes, from FBN 1, at cursor = 30: YES 3/3 
+Read 1,000 bytes from start of DBN 20 (spanning read): YES 3/3
+Write 77 bytes, starting at 10 bytes into FBN 7: YES 6/6
+Write 900 bytes, starting at 50 bytes into DBN 10: YES 5/5
+Bonus Write 700 bytes, starting at FBN 49 (This write extends the file): YES 10/10
+
+Total Score: 35/25
+
+
